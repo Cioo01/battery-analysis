@@ -6,7 +6,9 @@ output:
   html_document:
     toc: yes
     toc_float: yes
+subtitle: "[Report link](https://cioo01.github.io/battery-analysis/mp_project/mp_project.html)"
 ---
+
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE, warning = FALSE, fig.width=7, fig.height=7)
