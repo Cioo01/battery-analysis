@@ -1,0 +1,841 @@
+---
+title: "Battery Materials Analysis"
+author: "Jakub Ciulęba"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: yes
+    toc_float: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, fig.width=7, fig.height=7)
+
+```
+
+## Summary
+<hr>
+
+This report provides an in-depth analysis of the Materials Project batteries dataset. It includes an overview of the dataset, covering its size, column descriptions, and any missing values. Additionally, the report features various visualizations, predictive modeling, and an analysis of current trends in the battery industry.
+
+### Key Findings
+
+- **Dominance of Lithium Batteries**: Lithium batteries are the largest representative, outnumbering the second largest group by more than five times. Further analysis highlights their widespread use due to robust stability, high energy density, and minimal sensitivity to volume changes throughout their lifespan.
+  
+- **Aluminum as a Promising Alternative**: While lithium batteries dominate the dataset, aluminum batteries exhibit similar qualities and, in some cases, even surpass lithium’s performance — particularly in volumetric capacity. However, aluminum batteries tend to experience greater volume changes and instability. The potential advantages of aluminum batteries make them a promising alternative; despite their trade-offs, they deserve further attention.
+
+<br>
+
+## Libraries
+<hr>
+```{r libraries, message=FALSE}
+library(dplyr)
+library(readr)
+library(ggplot2)
+library(kableExtra)
+library(gridExtra)
+library(purrr)
+library(corrplot)
+library(tidyr)
+library(plotly)
+library(RColorBrewer)
+library(DT)
+library(caret)
+library(randomForest)
+library(factoextra)
+library(fpc)
+library(dbscan)
+```
+
+```{r load_file, message=FALSE, cache=TRUE, echo=FALSE}
+load_data <- function(folder_path = "data", file_name){
+  file_path <- file.path(folder_path, file_name)
+  df <- read_csv(file_path)
+  df
+}
+
+batteries_data <- load_data(file_name="mp_batteries.csv")
+
+```
+
+## Essentials
+<hr>
+### Basic Dataset Statistics
+
+```{r, echo=FALSE, results='asis'}
+
+num_rows <- nrow(batteries_data)
+num_cols <- ncol(batteries_data)
+total_missing <- sum(is.na(batteries_data))
+
+cat("- **Number of Rows:**", num_rows, "\n")
+cat("- **Number of Columns:**", num_cols, "\n")
+cat("- **Total Missing Values:**", total_missing, "\n")
+
+
+```
+
+
+No NULL or NA values are present in any of the attributes.
+<hr>
+### Overview of Categorical Attributes
+
+<br>
+
+#### Attribute Descriptions
+
+```{r ctg_description, echo=FALSE}
+descriptions <- c(
+  "Identifier of the battery.",
+  "Chemical formula of the battery material.",
+  "Primary ion responsible for charge transport in the battery.",
+  "Chemical formula of the battery material in the charged state.",
+  "Chemical formula of the battery material in the discharged state."
+)
+
+description_table <- data.frame(
+  Attribute = c("Battery ID", "Battery Formula", "Working Ion", "Formula Charge", "Formula Discharge"),
+  Description = descriptions
+)
+
+description_table %>%
+  kable("html", escape = FALSE) %>% 
+  kable_styling(position = "left") %>%
+  column_spec(1, bold = TRUE, width = "20em", border_left = FALSE) %>%
+  column_spec(2, width = "40em")
+```
+<hr>
+
+#### Summary Table
+
+```{r categorical_summary, echo=FALSE}
+
+text_summary <- batteries_data %>%
+  select(where(is.character)) %>%
+  summary()
+
+knitr::kable(text_summary)
+
+```
+<br>
+
+### Summary of Numeric Attributes
+
+<br>
+
+#### Attribute Descriptions
+
+```{r dbl_description, echo=FALSE}
+
+descriptions <- c(
+  "Change in volume (%) for a given voltage step using the formula: max(charge, discharge)/min(charge, discharge) - 1.",
+  "Average voltage for each voltage step.",
+  "Gravimetric capacity, or energy per unit mass (mAh/g).",
+  "Volumetric capacity, or energy per unit volume (mAh/cm³).",
+  "Gravimetric energy density relative to the battery mass (Wh/kg).",
+  "Volumetric energy density relative to the battery volume (Wh/L).",
+  "Atomic fraction of components in the charged state.",
+  "Atomic fraction of components in the discharged state.",
+  "Stability indicator of the material in the charged state.",
+  "Stability indicator of the material in the discharged state.",
+  "Number of distinct voltage steps from fully charged to discharged, based on stable intermediate states.",
+  "Maximum absolute difference between adjacent voltage steps."
+)
+
+description_table <- data.frame(
+  Attribute = c(
+    "Max Delta Volume", "Average Voltage", "Gravimetric Capacity", "Volumetric Capacity", 
+    "Gravimetric Energy", "Volumetric Energy", "Atomic Fraction Charge", 
+    "Atomic Fraction Discharge", "Stability Charge", "Stability Discharge", 
+    "Steps", "Max Voltage Step"
+  ),
+  Description = descriptions
+)
+
+description_table %>%
+  kable("html", escape = FALSE) %>%
+  kable_styling(position = "left") %>%
+  column_spec(1, bold = TRUE, width = "20em") %>%
+  column_spec(2, width = "40em")
+
+```
+<hr>
+#### Summary Table
+
+
+```{r numeric_summary, echo=FALSE}
+
+dbl_summary <- batteries_data %>%
+  select(where(is.double)) %>%
+  summary()
+
+knitr::kable(dbl_summary) %>%
+  kable_styling(bootstrap_options = "striped", full_width = F) %>%
+  scroll_box(width = "100%")
+
+```
+
+<br>
+
+### Values Distribution 
+
+
+```{r histograms, echo=FALSE}
+
+numeric_cols <- batteries_data %>% select(where(is.double))
+
+numeric_cols_long <- numeric_cols %>%
+  pivot_longer(everything(), names_to = "variable", values_to = "value")
+
+
+numeric_cols_long <- numeric_cols %>%
+  pivot_longer(everything(), names_to = "variable", values_to = "value")
+
+hist_plot <- ggplot(numeric_cols_long, aes(x = value)) +
+  geom_histogram(
+    aes(text = paste("Count:", ..count.., "<br>Value:", scales::comma(..x..))),
+    bins = 30, fill = "blue", color = "black", alpha = 0.7
+  ) +
+  theme_minimal() +
+  facet_wrap(~ variable, nrow = 5, scales = "free") +
+    theme(plot.title = element_text(hjust = 0.5, size = 16, face = "bold", color = "darkblue"), 
+        panel.spacing = unit(1.5, "lines"))
+        # plot.margin = margin(t = 10, r = 10, b = 10, l = 10))
+
+interactive_histograms <- ggplotly(hist_plot, tooltip = "text")
+
+interactive_histograms
+
+
+```
+
+## Visual Analysis
+<hr>
+
+### Total Number of Batteries per Ion
+
+```{r ions_popularity, echo=FALSE}
+
+ion_names <- c(
+  Li = "Lithium",
+  Ca = "Calcium",
+  Mg = "Magnesium",
+  Zn = "Zinc",
+  Na = "Sodium",
+  K = "Potassium",
+  Al = "Aluminum",
+  Y = "Yttrium",
+  Rb = "Rubidium",
+  Cs = "Cesium"
+)
+
+working_ion_counts <- batteries_data %>%
+  group_by(`Working Ion`) %>%
+  summarize(count = n()) %>%
+  arrange(desc(count)) %>%
+  mutate(Full_Element_Name = ion_names[as.character(`Working Ion`)])
+
+wic_plot <- ggplot(working_ion_counts, aes(x = count, y = reorder(`Working Ion`, count))) +
+  geom_bar(
+    stat = "identity", fill = "skyblue", color = "black",
+    aes(text = paste(Full_Element_Name, "<br>Count:", count))
+  ) +
+  labs(
+    x = "Amount",
+    y = "Working Ion"
+  ) +
+  theme_minimal()
+
+wic_interactive_plot <- ggplotly(wic_plot, tooltip = "text")
+
+wic_interactive_plot
+
+```
+
+<br>
+
+### Outlier Removal
+
+To ensure clarity and accuracy in the following graphs, the function below was used to filter out outliers that could skew the results. Due to the presence of extreme values, removing these outliers ensures that the dataset more accurately reflects typical trends, allowing for a fair comparison across different Working Ion groups.
+
+```{r outliers}
+
+remove_outliers <- function(x) {
+  Q1 <- quantile(x, 0.25)
+  Q3 <- quantile(x, 0.75)
+  IQR <- Q3 - Q1
+  x[x >= (Q1 - 1.5 * IQR) & x <= (Q3 + 1.5 * IQR)]
+}
+
+```
+
+<br>
+
+### Ion Average Voltage Characteristics
+```{r avg_vltd, echo=FALSE}
+
+ion_voltage_data <- batteries_data %>%
+  group_by(`Working Ion`) %>%
+  filter(`Average Voltage` %in% remove_outliers(`Average Voltage`)) %>%
+  summarize(
+    max_voltage = round(max(`Average Voltage`), 2),
+    min_voltage = round(min(`Average Voltage`), 2),
+    avg_voltage = round(mean(`Average Voltage`), 2)
+  ) %>%
+  mutate(
+    Full_Element_Name = ion_names[as.character(`Working Ion`)]
+  ) %>%
+  arrange(desc(avg_voltage))
+
+ion_voltage_long <- ion_voltage_data %>%
+  pivot_longer(cols = c(max_voltage, min_voltage, avg_voltage), names_to = "Voltage_Measure", values_to = "Voltage") %>%
+  mutate(
+    Voltage_Measure = recode(Voltage_Measure,
+                             max_voltage = "Max Avg Voltage",
+                             min_voltage = "Min Avg Voltage",
+                             avg_voltage = "Avg Voltage (Overall)"),
+    avg_voltage = ion_voltage_data$avg_voltage[match(`Working Ion`, ion_voltage_data$`Working Ion`)]
+  )
+
+ion_voltage_plot <- ggplot(ion_voltage_long, aes(x = Voltage, y = reorder(`Working Ion`, avg_voltage))) +
+  geom_bar(
+    aes(fill = Voltage_Measure, text = paste(Full_Element_Name, "<br>", Voltage_Measure, "<br>Voltage:", Voltage)),
+    position = "dodge", stat = "identity", color = "black", width = 0.7
+  ) +
+  labs(
+    x = "Voltage [V]",
+    y = "Working Ion",
+    fill = "Voltage Measure"
+  ) +
+  theme_minimal()
+
+ion_voltage_interactive_plot <- ggplotly(ion_voltage_plot, tooltip = "text")
+
+ion_voltage_interactive_plot
+
+
+```
+
+<br>
+
+### Ion Stability
+
+```{r stability, echo = FALSE}
+stability_data <- batteries_data %>%
+  group_by(`Working Ion`) %>%
+  filter(
+    `Stability Charge` %in% remove_outliers(`Stability Charge`),
+    `Stability Discharge` %in% remove_outliers(`Stability Discharge`)
+  ) %>%
+  summarize(
+    avg_stability_charge = round(mean(`Stability Charge`), 2),
+    avg_stability_discharge = round(mean(`Stability Discharge`), 2)
+  ) %>%
+  mutate(
+    Full_Element_Name = ion_names[as.character(`Working Ion`)]
+  ) %>%
+  arrange(desc(avg_stability_charge))
+
+stability_plot <- plot_ly(stability_data) %>%
+  add_trace(
+    x = ~`Working Ion`,
+    y = ~avg_stability_charge,
+    type = 'bar',
+    name = 'Average Stability Charge',
+    text = ~paste(Full_Element_Name, "<br>Avg Stability Charge:", avg_stability_charge),
+    hoverinfo = "text",
+    textposition = 'none'
+  ) %>%
+  add_trace(
+    x = ~`Working Ion`,
+    y = ~avg_stability_discharge,
+    type = 'bar',
+    name = 'Average Stability Discharge',
+    text = ~paste(Full_Element_Name, "<br>Avg Stability Discharge:", avg_stability_discharge),
+    hoverinfo = "text",
+    textposition = 'none'
+  ) %>%
+  layout(
+    barmode = 'group',
+    xaxis = list(title = 'Working Ion'),
+    yaxis = list(title = 'Stability')
+  )
+
+stability_plot
+```
+
+<br>
+
+### Volume Fluctuations
+
+```{r max_dv_plot, echo=FALSE}
+
+
+ion_volume_data <- batteries_data %>%
+  group_by(`Working Ion`) %>%
+  filter(`Max Delta Volume` %in% remove_outliers(`Max Delta Volume`)) %>%
+  summarize(
+    max_volume = round(max(`Max Delta Volume`), 2),
+    min_volume = round(min(`Max Delta Volume`), 2),
+    avg_volume = round(mean(`Max Delta Volume`), 2)
+  ) %>%
+  mutate(
+    Full_Element_Name = ion_names[as.character(`Working Ion`)]
+  )
+
+ion_volume_long <- ion_volume_data %>%
+  pivot_longer(cols = c(max_volume, min_volume, avg_volume), names_to = "Volume_Measure", values_to = "Volume") %>%
+  mutate(Volume_Measure = recode(Volume_Measure, 
+                                 max_volume = "Max Change in Volume", 
+                                 min_volume = "Min Change in Volume", 
+                                 avg_volume = "Average Change in Volume"))
+
+ion_volume_plot <- ggplot(ion_volume_long, aes(x = Volume, y = reorder(`Working Ion`, Volume))) +
+  geom_bar(
+    aes(fill = Volume_Measure, text = paste(Full_Element_Name, "<br>", Volume_Measure, "<br>Volume:", Volume)),
+    position = "dodge", stat = "identity", color = "black", width = 0.7
+  ) +
+  labs(
+    x = "Delta Volume [%]",
+    y = "Working Ion",
+    fill = "Volume Measure"
+  ) +
+  theme_minimal()
+
+ion_volume_interactive_plot <- ggplotly(ion_volume_plot, tooltip = "text")
+
+ion_volume_interactive_plot
+
+```
+<br>
+
+### Volumetric vs Gravimetric Energy
+
+
+```{r energy_data, echo=FALSE}
+
+ion_energy_data <- batteries_data %>%
+  group_by(`Working Ion`) %>%
+  filter(`Volumetric Energy` %in% remove_outliers(`Volumetric Energy`) & 
+         `Gravimetric Energy` %in% remove_outliers(`Gravimetric Energy`)) %>%
+  summarize(
+    avg_vol_energy = round(mean(`Volumetric Energy`), 2),
+    avg_grav_energy = round(mean(`Gravimetric Energy`), 2)
+  ) %>%
+  mutate(
+    Full_Element_Name = ion_names[as.character(`Working Ion`)]
+  ) %>%
+  arrange(desc(avg_vol_energy))
+
+ion_energy_long <- ion_energy_data %>%
+  pivot_longer(cols = c(avg_vol_energy, avg_grav_energy), 
+               names_to = "Energy_Measure", values_to = "Energy") %>%
+  mutate(avg_vol_energy = ion_energy_data$avg_vol_energy[match(`Working Ion`, ion_energy_data$`Working Ion`)])
+
+ion_energy_long <- ion_energy_long %>%
+  mutate(Energy_Measure = recode(Energy_Measure, 
+                                 avg_grav_energy = "Average Gravimetric Energy (Wh/kg)",
+                                 avg_vol_energy = "Average Volumetric Energy (Wh/L)"))
+
+ion_energy_plot <- ggplot(ion_energy_long, aes(x = Energy, y = reorder(`Working Ion`, avg_vol_energy))) +
+  geom_bar(
+    aes(fill = Energy_Measure, text = paste(Full_Element_Name, "<br>", Energy_Measure, "<br>Energy:", Energy)),
+    position = "dodge", stat = "identity", color = "black", width = 0.7
+  ) +
+  labs(
+    x = "Average Energy",
+    y = "Working Ion",
+    fill = "Energy Measure"
+  ) +
+  theme_minimal()
+
+ion_energy_interactive_plot <- ggplotly(ion_energy_plot, tooltip = "text")
+
+ion_energy_interactive_plot
+```
+<br>
+
+### Volumetric vs Gravimetric Capacity
+```{r cap_comp, echo=FALSE}
+ion_capacity_data <- batteries_data %>%
+  group_by(`Working Ion`) %>%
+  filter(`Gravimetric Capacity` %in% remove_outliers(`Gravimetric Capacity`) & 
+         `Volumetric Capacity` %in% remove_outliers(`Volumetric Capacity`)) %>%
+  summarize(
+    avg_grav_capacity = round(mean(`Gravimetric Capacity`), 2),
+    avg_vol_capacity = round(mean(`Volumetric Capacity`), 2)
+  ) %>%
+  mutate(
+    Full_Element_Name = ion_names[as.character(`Working Ion`)]
+  ) %>%
+  arrange(desc(avg_grav_capacity))
+
+ion_capacity_long <- ion_capacity_data %>%
+  pivot_longer(cols = c(avg_grav_capacity, avg_vol_capacity), 
+               names_to = "Capacity_Measure", values_to = "Capacity") %>%
+  mutate(avg_grav_capacity = ion_capacity_data$avg_grav_capacity[match(`Working Ion`, ion_capacity_data$`Working Ion`)])
+
+ion_capacity_long <- ion_capacity_long %>%
+  mutate(Capacity_Measure = recode(Capacity_Measure, 
+                                   avg_grav_capacity = "Average Gravimetric Capacity (mAh/g)",
+                                   avg_vol_capacity = "Average Volumetric Capacity (mAh/cm³)"))
+
+ion_capacity_plot <- ggplot(ion_capacity_long, aes(x = Capacity, y = reorder(`Working Ion`, avg_grav_capacity))) +
+  geom_bar(
+    aes(fill = Capacity_Measure, text = paste(Full_Element_Name, "<br>", Capacity_Measure, "<br>Capacity:", Capacity)),
+    position = "dodge", stat = "identity", color = "black", width = 0.7
+  ) +
+  scale_fill_manual(
+    values = c("Average Gravimetric Capacity (mAh/g)" = "#1f78b4", "Average Volumetric Capacity (mAh/cm³)" = "#33a02c")
+  ) +
+  labs(
+    x = "Average Capacity",
+    y = "Working Ion",
+    fill = "Capacity Measure"
+  ) +
+  theme_minimal()
+
+ion_capacity_interactive_plot <- ggplotly(ion_capacity_plot, tooltip = "text")
+
+ion_capacity_interactive_plot
+
+
+```
+<br>
+
+### Atomic Fraction
+
+```{r atoms, echo=FALSE}
+ion_atomic_data <- batteries_data %>%
+  group_by(`Working Ion`) %>%
+  filter(`Atomic Fraction Charge` %in% remove_outliers(`Atomic Fraction Charge`) & 
+         `Atomic Fraction Discharge` %in% remove_outliers(`Atomic Fraction Discharge`)) %>%
+  summarize(
+    avg_atomic_charge = round(mean(`Atomic Fraction Charge`), 2),
+    avg_atomic_discharge = round(mean(`Atomic Fraction Discharge`), 2)
+  ) %>%
+  mutate(
+    Full_Element_Name = ion_names[as.character(`Working Ion`)]
+  ) %>%
+  arrange(desc(avg_atomic_charge))
+
+ion_atomic_long <- ion_atomic_data %>%
+  pivot_longer(cols = c(avg_atomic_charge, avg_atomic_discharge), 
+               names_to = "Atomic_Measure", values_to = "Atomic Fraction") %>%
+  mutate(avg_atomic_charge = ion_atomic_data$avg_atomic_charge[match(`Working Ion`, ion_atomic_data$`Working Ion`)])
+
+ion_atomic_long <- ion_atomic_long %>%
+  mutate(Atomic_Measure = recode(Atomic_Measure, 
+                                 avg_atomic_charge = "Average Atomic Fraction Charge",
+                                 avg_atomic_discharge = "Average Atomic Fraction Discharge"))
+
+ion_atomic_plot <- ggplot(ion_atomic_long, aes(x = `Atomic Fraction`, y = reorder(`Working Ion`, avg_atomic_charge))) +
+  geom_bar(
+    aes(fill = Atomic_Measure, text = paste(Full_Element_Name, "<br>", Atomic_Measure, "<br>Atomic Fraction:", `Atomic Fraction`)),
+    position = "dodge", stat = "identity", color = "black", width = 0.7
+  ) +
+  scale_fill_manual(values = c("Average Atomic Fraction Charge" = "#e8a9f3", "Average Atomic Fraction Discharge" = "#ffe680")) +
+  labs(
+    x = "Average Atomic Fraction",
+    y = "Working Ion",
+    fill = "Atomic Measure"
+  ) +
+  theme_minimal()
+
+ion_atomic_interactive_plot <- ggplotly(ion_atomic_plot, tooltip = "text")
+
+ion_atomic_interactive_plot
+
+
+```
+
+<br>
+
+## Correlation Matrix
+
+<hr>
+```{r corr_data, echo=FALSE}
+
+double_columns <- batteries_data %>%
+  select(where(is.double))
+
+cor_matrix <- cor(double_columns, use = "complete.obs")
+
+corrplot.mixed(cor_matrix, upper = "circle", lower = "number", tl.srt = 45, diag = "n", number.cex = 0.8, tl.cex = 0.85,
+               tl.pos ="lt", tl.col = "black")
+
+
+```
+
+
+### Notable Correlations for Analysis
+
+```{r corr_insights, echo=FALSE}
+correlation_insights <- data.frame(
+  Correlation = c("Average Voltage & Gravimetric / Volumetric Energy (0.67) / (0.55)", 
+                  "Atomic Fraction Charge / Discharge (0.60)", 
+                  "Stability Charge / Discharge (0.80)"),
+  Comment = c(
+    "Both gravimetric and volumetric energy correlate with average voltage. Maximizing gravimetric energy boosts ion movement, resulting in higher voltage and energy states. Conversely, maximizing volumetric energy can slow ion movement, leading to lower voltage and increased heat dissipation, reducing usable energy output.",
+    "Charging and discharging atomic fractions generally align, ensuring a balanced ion cycle. Minor imbalances could impact stability and longevity.",
+    "High stability correlation between charge and discharge phases enhances cycling reliability, crucial for long-term performance."
+  )
+)
+
+kable(correlation_insights, col.names = c("Correlation", "Comment"))
+
+```
+
+<br>
+
+## Model Predictions
+
+<hr>
+
+Below, you will find model-based estimates generated by following parameters: `Max Delta Volume`, `Average Voltage`, `Gravimetric Capacity`, and `Stability Charge` in a controlled progression. This progression simulates potential future states to help visualize the projected changes in `Gravimetric Energy`. Each data point on the plot includes a tooltip showing the estimated energy along with the related values for each parameter over a hypothetical range.<br><br>*Note: Model training was conducted without outliers to improve prediction accuracy and reliability*
+
+```{r model, echo=FALSE, cache=TRUE}
+remove_outliers_rows <- function(df) {
+  df %>%
+    filter(across(where(is.numeric), ~ {
+      Q1 <- quantile(.x, 0.25)
+      Q3 <- quantile(.x, 0.75)
+      IQR <- Q3 - Q1
+      .x >= (Q1 - 1.5 * IQR) & .x <= (Q3 + 1.5 * IQR)
+    }))
+}
+
+model_data <- remove_outliers_rows(batteries_data)
+
+selected_columns <- c("Max Delta Volume", "Average Voltage", "Gravimetric Capacity", 
+                      "Stability Charge")
+target_variable <- "Gravimetric Energy"
+
+model_data <- model_data[, c(selected_columns, target_variable)]
+
+model_data <- na.omit(model_data)
+
+set.seed(123)
+trainIndex <- createDataPartition(model_data[[target_variable]], p = 0.8, list = FALSE)
+trainData <- model_data[trainIndex, ]
+testData <- model_data[-trainIndex, ]
+
+train_control <- trainControl(method = "cv", number = 10)
+
+model_file <- "battery_model.rds"
+
+if (file.exists(model_file)) {
+  model <- readRDS(model_file)
+} else {
+  model <- train(
+    as.formula(paste("`", target_variable, "` ~ .", sep = "")),
+    data = trainData,
+    method = "rf",
+    trControl = train_control
+  )
+}
+
+```
+
+<br>
+
+### Model Estimations Graph
+
+```{r estimate, echo=FALSE}
+future_progression_data <- data.frame(
+  "Max Delta Volume" = seq(1, 0, length.out = 100),
+  "Average Voltage" = seq(-8, 10, length.out = 100),
+  "Gravimetric Capacity" = seq(5, 500, length.out = 100),
+  "Stability Charge" = seq(6, 0, length.out = 100),
+  check.names = FALSE
+)
+
+predictions <- predict(model, newdata = future_progression_data)
+
+future_progression_data$Predicted_Energy <- predictions
+
+progression_points <- future_progression_data[seq(1, nrow(future_progression_data), length.out = 10), ]
+
+progression_points$tooltip_text <- paste(
+  "Predicted Energy:", round(progression_points$Predicted_Energy, 2),
+  "<br>Max Delta Volume:", round(progression_points$`Max Delta Volume`, 2),
+  "<br>Average Voltage:", round(progression_points$`Average Voltage`, 2),
+  "<br>Gravimetric Capacity:", round(progression_points$`Gravimetric Capacity`, 2),
+  "<br>Stability Charge:", round(progression_points$`Stability Charge`, 2)
+)
+
+energy_pred <- ggplot(progression_points, aes(x = seq_along(Predicted_Energy), y = Predicted_Energy, text = tooltip_text)) +
+  geom_point(color = "blue", size = 3) +
+  labs(
+       x = NULL,
+       y = "Predicted Gravimetric Energy") +
+  theme_minimal() +
+  theme(axis.text.x = element_blank(),
+        axis.ticks.x = element_blank())
+
+energy_pred_plot <- ggplotly(energy_pred, tooltip = "text")
+
+energy_pred_plot
+```
+
+<br>
+
+### Parameter Impact Visualizations
+
+Next four graphs illustrate the impact of each parameter on predicted energy by sequencing the selected variable while holding other variables at their average values.
+
+<br>
+
+```{r graphs, echo=FALSE}
+create_progression_data <- function(model, x_var, x_range, color, x_label, y_label = "Predicted Gravimetric Energy") {
+  progression_data <- data.frame(
+    "Max Delta Volume" = if (x_var == "Max Delta Volume") seq(x_range[1], x_range[2], length.out = 100) else rep(mean(model_data$`Max Delta Volume`), 100),
+    "Average Voltage" = if (x_var == "Average Voltage") seq(x_range[1], x_range[2], length.out = 100) else rep(mean(model_data$`Average Voltage`), 100),
+    "Gravimetric Capacity" = if (x_var == "Gravimetric Capacity") seq(x_range[1], x_range[2], length.out = 100) else rep(mean(model_data$`Gravimetric Capacity`), 100),
+    "Stability Charge" = if (x_var == "Stability Charge") seq(x_range[1], x_range[2], length.out = 100) else rep(mean(model_data$`Stability Charge`), 100),
+    check.names = FALSE
+  )
+
+  predictions <- predict(model, newdata = progression_data)
+  progression_data$Predicted_Energy <- predictions
+
+  ppoints <- progression_data[seq(1, nrow(progression_data), length.out = 10), ]
+  ppoints$tooltip_text <- paste(
+    "Predicted Energy:", round(ppoints$Predicted_Energy, 2),
+    "<br>Max Delta Volume:", round(ppoints$`Max Delta Volume`, 2),
+    "<br>Average Voltage:", round(ppoints$`Average Voltage`, 2),
+    "<br>Gravimetric Capacity:", round(ppoints$`Gravimetric Capacity`, 2),
+    "<br>Stability Charge:", round(ppoints$`Stability Charge`, 2)
+  )
+
+  plot <- ggplot(ppoints, aes(x = .data[[x_var]], y = Predicted_Energy, text = tooltip_text)) +
+    geom_point(color = color, size = 3) +
+    labs(x = x_label, y = y_label) +
+    theme_minimal()
+
+  ggplotly(plot, tooltip = "text")
+}
+```
+
+### Voltage Impact
+
+```{r volt_impact, echo=FALSE}
+vlt_int_plot <- create_progression_data(
+  model, "Average Voltage", range(model_data$`Average Voltage`), "red", "Average Voltage"
+)
+
+vlt_int_plot
+```
+
+<br>
+
+### Volume Delta Impact
+
+```{r volume_impact, echo=FALSE}
+delta_int_plot <- create_progression_data(
+  model, "Max Delta Volume", range(model_data$`Max Delta Volume`), "purple", "Max Delta Volume"
+)
+
+delta_int_plot
+```
+
+<br>
+
+### Gravimetric Capacity Impact
+
+```{r grav_cap_impact, echo = FALSE}
+grav_cap_int_plot <- create_progression_data(
+  model, "Gravimetric Capacity", range(model_data$`Gravimetric Capacity`), "green", "Gravimetric Capacity"
+)
+
+grav_cap_int_plot
+
+```
+
+<br>
+
+### Stability Charge Impact
+
+```{r st_charge_impact, echo = FALSE}
+st_charge_int_plot <- create_progression_data(
+  model, "Stability Charge", range(model_data$`Stability Charge`), "black", "Stability Charge"
+)
+
+st_charge_int_plot
+
+```
+
+Among the parameters studied, the trained model indicates that Average Voltage and Gravimetric Capacity have the greatest influence on predicted energy, while Max Delta Volume and Stability Charge show only slight and inconclusive variations in energy output.
+
+<br>
+
+### Model vs Real Data
+
+```{r comparison}
+set.seed(5643)
+
+sample_data <- batteries_data[sample(nrow(batteries_data), 10), ]
+
+sample_input <- sample_data[, c("Max Delta Volume", "Average Voltage", "Gravimetric Capacity", "Stability Charge")]
+
+sample_data$Predicted_Energy <- predict(model, newdata = sample_input)
+
+result_data <- sample_data[, c("Battery ID", "Gravimetric Energy", "Predicted_Energy")]
+
+knitr::kable(result_data)
+```
+
+The model generally predicts energy well, but it is vulnerable to outliers, such as the case of `mp-757896_Li`, where the predicted energy deviates noticeably from the actual value.
+
+<br>
+
+## Trends Analysis
+
+<hr>
+
+### Cluster Summary Table
+
+```{r trends, echo = FALSE}
+clustering_data <- batteries_data %>%
+  select_if(is.numeric) %>% 
+  select(-`Max Delta Volume`, -`Average Voltage`, -`Atomic Fraction Charge`, -`Max Voltage Step`, -`Stability Discharge`,
+         -`Stability Charge`, -`Steps`)
+
+clustering_data_scaled <- scale(clustering_data)
+
+eps_value <- 2.1
+minPts_value <- 9 
+dbscan_result <- dbscan(clustering_data_scaled, eps = eps_value, minPts = minPts_value)
+
+batteries_data$Cluster <- dbscan_result$cluster
+
+fviz_cluster(dbscan_result, data = clustering_data_scaled, geom = "point")
+
+cluster_summary <- batteries_data %>%
+  filter(Cluster > 0) %>% 
+  group_by(Cluster) %>%
+  summarize(
+    Records_in_Cluster = n(),
+    Cluster_Ions = paste(
+      names(sort(table(`Working Ion`), decreasing = TRUE)), 
+      collapse = ", "
+    ),
+    Mean_Gravimetric_Capacity = mean(`Gravimetric Capacity`),
+    Mean_Volumetric_Capacity = mean(`Volumetric Capacity`),
+    Mean_Gravimetric_Energy = mean(`Gravimetric Energy`),
+    Mean_Volumetric_Energy = mean(`Volumetric Energy`),
+    Mean_Atomic_Fraction_Discharge = mean(`Atomic Fraction Discharge`)
+  )
+
+knitr::kable(cluster_summary) %>%
+  kable_styling(bootstrap_options = "striped", full_width = F) %>%
+  scroll_box(width = "100%")
+
+
+```
+
+<br>
+
+The trends reveal a clear preference for batteries with high `Volumetric Energy` and low `Atomic Fraction Discharge`, likely driven by the growing demand for compact, high-performance batteries in modern smart devices. As each device requires a powerful yet space-efficient energy source, manufacturers are prioritizing designs that maximize energy density, ensuring longer usage times between charges.
+
+Clusters 3 and 4 overlap, likely due to their similar `Atomic Fraction Discharge` values (0.882 vs. 0.866), suggesting a shared discharge profile despite other differences.

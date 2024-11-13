@@ -1,0 +1,17 @@
+dplyr
+readr
+ggplot2
+kableExtra
+gridExtra
+purrr
+corrplot
+tidyr
+plotly
+RColorBrewer
+DT
+lattice
+caret
+randomForest
+factoextra
+fpc
+dbscan
