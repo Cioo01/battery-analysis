@@ -26,6 +26,8 @@ This report provides an in-depth analysis of the Materials Project batteries dat
   
 - **Aluminum as a Promising Alternative**: While lithium batteries dominate the dataset, aluminum batteries exhibit similar qualities and, in some cases, even surpass lithium’s performance — particularly in volumetric capacity. However, aluminum batteries tend to experience greater volume changes and instability. The potential advantages of aluminum batteries make them a promising alternative; despite their trade-offs, they deserve further attention.
 
+- **Preference for High Volumetric Energy**: The data reveals a strong preference for batteries with high volumetric energy, likely due to their space-efficient qualities — a highly valued feature in modern electronics.
+
 <br>
 
 ## Libraries
@@ -795,6 +797,12 @@ The model generally predicts energy well, but it is vulnerable to outliers, such
 
 <hr>
 
+### Clustering Approach
+
+For the DBSCAN clustering, `Gravimetric Capacity`, `Volumetric Capacity`, `Gravimetric Energy`, `Volumetric Energy`, and `Atomic Fraction Discharge` were selected. These columns were chosen based on the variation observed in their histograms, which indicated they would effectively differentiate between clusters.
+
+<br>
+
 ### Cluster Summary Table
 
 ```{r trends, echo = FALSE}
@@ -840,4 +848,4 @@ knitr::kable(cluster_summary) %>%
 
 The trends reveal a clear preference for batteries with high `Volumetric Energy` and low `Atomic Fraction Discharge`, likely driven by the growing demand for compact, high-performance batteries in modern smart devices. As each device requires a powerful yet space-efficient energy source, manufacturers are prioritizing designs that maximize energy density, ensuring longer usage times between charges.
 
-Clusters 3 and 4 overlap, likely due to their similar `Atomic Fraction Discharge` values (0.882 vs. 0.866), suggesting a shared discharge profile despite other differences.
+Clusters 2 and 3 overlap, likely due to their similar `Atomic Fraction Discharge` values (0.882 vs. 0.866), suggesting a shared discharge profile despite other differences.
